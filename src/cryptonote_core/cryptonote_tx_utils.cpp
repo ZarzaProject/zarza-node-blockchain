@@ -673,7 +673,7 @@ namespace cryptonote
   void get_altblock_longhash(const block& b, crypto::hash& res, const crypto::hash& seed_hash)
   {
     blobdata bd = get_block_hashing_blob(b);
-    rx_slow_hash(seed_hash.data, bd.data(), bd.size(), res.data);
+    rz_slow_hash(seed_hash.data, bd.data(), bd.size(), res.data);
   }
 
   bool get_block_longhash(const Blockchain *pbc, const blobdata& bd, crypto::hash& res, const uint64_t height, const int major_version, const crypto::hash *seed_hash, const int miners)
@@ -690,13 +690,13 @@ namespace cryptonote
       crypto::hash hash;
       if (pbc != NULL)
       {
-        const uint64_t seed_height = rx_seedheight(height);
+        const uint64_t seed_height = rz_seedheight(height);
         hash = seed_hash ? *seed_hash : pbc->get_pending_block_id_by_height(seed_height);
       } else
       {
         memset(&hash, 0, sizeof(hash));  // only happens when generating genesis block
       }
-      rx_slow_hash(hash.data, bd.data(), bd.size(), res.data);
+      rz_slow_hash(hash.data, bd.data(), bd.size(), res.data);
     } else {
       const int pow_variant = major_version >= 7 ? major_version - 6 : 0;
       crypto::cn_slow_hash(bd.data(), bd.size(), res, pow_variant, height);

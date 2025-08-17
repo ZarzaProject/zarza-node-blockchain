@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2024, The Monero Project
+// Copyright (c) 2019-2024, The Zarza Project
 //
 // All rights reserved.
 //
@@ -41,10 +41,10 @@
 #include "hash-ops.h"
 #include "misc_log_ex.h"
 
-#define RX_LOGCAT	"randomx"
+#define RZ_LOGCAT	"randomzr"
 
 // Report large page allocation failures as debug messages
-#define alloc_err_msg(x) mdebug(RX_LOGCAT, x);
+#define alloc_err_msg(x) mdebug(RZ_LOGCAT, x);
 
 static CTHR_RWLOCK_TYPE main_dataset_lock = CTHR_RWLOCK_INIT;
 static CTHR_RWLOCK_TYPE main_cache_lock = CTHR_RWLOCK_INIT;
@@ -77,7 +77,7 @@ static bool is_secondary(const char* seedhash) { return secondary_seedhash_set &
 
 static void local_abort(const char *msg)
 {
-  merror(RX_LOGCAT, "%s", msg);
+  merror(RZ_LOGCAT, "%s", msg);
   fprintf(stderr, "%s\n", msg);
 #ifdef NDEBUG
   _exit(1);
@@ -103,7 +103,7 @@ static inline int disabled_flags(void) {
     return flags;
   }
 
-  const char *env = getenv("MONERO_RANDOMX_UMASK");
+  const char *env = getenv("ZARZA_RANDOMZR_UMASK");
   if (!env) {
     flags = 0;
   }
@@ -176,7 +176,7 @@ static unsigned int get_seedhash_epoch_blocks(void)
   return blocks;
 }
 
-uint64_t rx_seedheight(const uint64_t height) {
+uint64_t rz_seedheight(const uint64_t height) {
   const uint64_t seedhash_epoch_lag = get_seedhash_epoch_lag();
   const uint64_t seedhash_epoch_blocks = get_seedhash_epoch_blocks();
   uint64_t s_height =  (height <= seedhash_epoch_blocks+seedhash_epoch_lag) ? 0 :
@@ -184,12 +184,12 @@ uint64_t rx_seedheight(const uint64_t height) {
   return s_height;
 }
 
-void rx_seedheights(const uint64_t height, uint64_t *seedheight, uint64_t *nextheight) {
-  *seedheight = rx_seedheight(height);
-  *nextheight = rx_seedheight(height + get_seedhash_epoch_lag());
+void rz_seedheights(const uint64_t height, uint64_t *seedheight, uint64_t *nextheight) {
+  *seedheight = rz_seedheight(height);
+  *nextheight = rz_seedheight(height + get_seedhash_epoch_lag());
 }
 
-static void rx_alloc_dataset(randomx_flags flags, randomx_dataset** dataset, int ignore_env)
+static void rz_alloc_dataset(randomx_flags flags, randomx_dataset** dataset, int ignore_env)
 {
   if (*dataset) {
     return;
@@ -199,31 +199,31 @@ static void rx_alloc_dataset(randomx_flags flags, randomx_dataset** dataset, int
     static int shown = 0;
     if (!shown) {
       shown = 1;
-      minfo(RX_LOGCAT, "RandomX dataset is disabled by MONERO_RANDOMX_UMASK environment variable.");
+      minfo(RZ_LOGCAT, "RandomZR dataset is disabled by ZARZA_RANDOMZR_UMASK environment variable.");
     }
     return;
   }
 
-  if (!ignore_env && !getenv("MONERO_RANDOMX_FULL_MEM")) {
+  if (!ignore_env && !getenv("ZARZA_RANDOMZR_FULL_MEM")) {
     static int shown = 0;
     if (!shown) {
       shown = 1;
-      minfo(RX_LOGCAT, "RandomX dataset is not enabled by default. Use MONERO_RANDOMX_FULL_MEM environment variable to enable it.");
+      minfo(RZ_LOGCAT, "RandomZR dataset is not enabled by default. Use ZARZA_RANDOMZR_FULL_MEM environment variable to enable it.");
     }
     return;
   }
 
   *dataset = randomx_alloc_dataset((flags | RANDOMX_FLAG_LARGE_PAGES) & ~disabled_flags());
   if (!*dataset) {
-    alloc_err_msg("Couldn't allocate RandomX dataset using large pages");
+    alloc_err_msg("Couldn't allocate RandomZR dataset using large pages");
     *dataset = randomx_alloc_dataset(flags & ~disabled_flags());
     if (!*dataset) {
-      merror(RX_LOGCAT, "Couldn't allocate RandomX dataset");
+      merror(RZ_LOGCAT, "Couldn't allocate RandomZR dataset");
     }
   }
 }
 
-static void rx_alloc_cache(randomx_flags flags, randomx_cache** cache)
+static void rz_alloc_cache(randomx_flags flags, randomx_cache** cache)
 {
   if (*cache) {
     return;
@@ -231,13 +231,13 @@ static void rx_alloc_cache(randomx_flags flags, randomx_cache** cache)
 
   *cache = randomx_alloc_cache((flags | RANDOMX_FLAG_LARGE_PAGES) & ~disabled_flags());
   if (!*cache) {
-    alloc_err_msg("Couldn't allocate RandomX cache using large pages");
+    alloc_err_msg("Couldn't allocate RandomZR cache using large pages");
     *cache = randomx_alloc_cache(flags & ~disabled_flags());
-    if (!*cache) local_abort("Couldn't allocate RandomX cache");
+    if (!*cache) local_abort("Couldn't allocate RandomZR cache");
   }
 }
 
-static void rx_init_full_vm(randomx_flags flags, randomx_vm** vm)
+static void rz_init_full_vm(randomx_flags flags, randomx_vm** vm)
 {
   if (*vm || !main_dataset || (disabled_flags() & RANDOMX_FLAG_FULL_MEM)) {
     return;
@@ -252,16 +252,16 @@ static void rx_init_full_vm(randomx_flags flags, randomx_vm** vm)
     static int shown = 0;
     if (!shown) {
         shown = 1;
-        alloc_err_msg("Couldn't allocate RandomX full VM using large pages (will print only once)");
+        alloc_err_msg("Couldn't allocate RandomZR full VM using large pages (will print only once)");
     }
     *vm = randomx_create_vm((flags | RANDOMX_FLAG_FULL_MEM) & ~disabled_flags(), NULL, main_dataset);
     if (!*vm) {
-      merror(RX_LOGCAT, "Couldn't allocate RandomX full VM");
+      merror(RZ_LOGCAT, "Couldn't allocate RandomZR full VM");
     }
   }
 }
 
-static void rx_init_light_vm(randomx_flags flags, randomx_vm** vm, randomx_cache* cache)
+static void rz_init_light_vm(randomx_flags flags, randomx_vm** vm, randomx_cache* cache)
 {
   if (*vm) {
     randomx_vm_set_cache(*vm, cache);
@@ -279,10 +279,10 @@ static void rx_init_light_vm(randomx_flags flags, randomx_vm** vm, randomx_cache
     static int shown = 0;
     if (!shown) {
         shown = 1;
-        alloc_err_msg("Couldn't allocate RandomX light VM using large pages (will print only once)");
+        alloc_err_msg("Couldn't allocate RandomZR light VM using large pages (will print only once)");
     }
     *vm = randomx_create_vm(flags & ~disabled_flags(), cache, NULL);
-    if (!*vm) local_abort("Couldn't allocate RandomX light VM");
+    if (!*vm) local_abort("Couldn't allocate RandomZR light VM");
   }
 }
 
@@ -292,13 +292,13 @@ typedef struct seedinfo {
   unsigned long si_count;
 } seedinfo;
 
-static CTHR_THREAD_RTYPE rx_seedthread(void *arg) {
+static CTHR_THREAD_RTYPE rz_seedthread(void *arg) {
   seedinfo *si = arg;
   randomx_init_dataset(main_dataset, si->si_cache, si->si_start, si->si_count);
   CTHR_THREAD_RETURN;
 }
 
-static void rx_init_dataset(size_t max_threads) {
+static void rz_init_dataset(size_t max_threads) {
   if (!main_dataset) {
     return;
   }
@@ -306,7 +306,7 @@ static void rx_init_dataset(size_t max_threads) {
   // leave 2 CPU cores for other tasks
   const size_t num_threads = (max_threads < 4) ? 1 : (max_threads - 2);
   seedinfo* si = malloc(num_threads * sizeof(seedinfo));
-  if (!si) local_abort("Couldn't allocate RandomX mining threadinfo");
+  if (!si) local_abort("Couldn't allocate RandomZR mining threadinfo");
 
   const uint32_t delta = randomx_dataset_item_count() / num_threads;
   uint32_t start = 0;
@@ -324,12 +324,12 @@ static void rx_init_dataset(size_t max_threads) {
   si[n1].si_count = randomx_dataset_item_count() - start;
 
   CTHR_THREAD_TYPE *st = malloc(num_threads * sizeof(CTHR_THREAD_TYPE));
-  if (!st) local_abort("Couldn't allocate RandomX mining threadlist");
+  if (!st) local_abort("Couldn't allocate RandomZR mining threadlist");
 
   CTHR_RWLOCK_LOCK_READ(main_cache_lock);
   for (size_t i = 0; i < n1; ++i) {
-    if (!CTHR_THREAD_CREATE(st[i], rx_seedthread, &si[i])) {
-      local_abort("Couldn't start RandomX seed thread");
+    if (!CTHR_THREAD_CREATE(st[i], rz_seedthread, &si[i])) {
+      local_abort("Couldn't start RandomZR seed thread");
     }
   }
   randomx_init_dataset(main_dataset, si[n1].si_cache, si[n1].si_start, si[n1].si_count);
@@ -339,7 +339,7 @@ static void rx_init_dataset(size_t max_threads) {
   free(st);
   free(si);
 
-  minfo(RX_LOGCAT, "RandomX dataset initialized");
+  minfo(RZ_LOGCAT, "RandomZR dataset initialized");
 }
 
 typedef struct thread_info {
@@ -347,7 +347,7 @@ typedef struct thread_info {
   size_t max_threads;
 } thread_info;
 
-static CTHR_THREAD_RTYPE rx_set_main_seedhash_thread(void *arg) {
+static CTHR_THREAD_RTYPE rz_set_main_seedhash_thread(void *arg) {
   thread_info* info = arg;
 
   CTHR_RWLOCK_LOCK_WRITE(main_dataset_lock);
@@ -365,19 +365,19 @@ static CTHR_THREAD_RTYPE rx_set_main_seedhash_thread(void *arg) {
 
   char buf[HASH_SIZE * 2 + 1];
   hash2hex(main_seedhash, buf);
-  minfo(RX_LOGCAT, "RandomX new main seed hash is %s", buf);
+  minfo(RZ_LOGCAT, "RandomZR new main seed hash is %s", buf);
 
   const randomx_flags flags = enabled_flags() & ~disabled_flags();
-  rx_alloc_dataset(flags, &main_dataset, 0);
-  rx_alloc_cache(flags, &main_cache);
+  rz_alloc_dataset(flags, &main_dataset, 0);
+  rz_alloc_cache(flags, &main_cache);
 
   randomx_init_cache(main_cache, info->seedhash, HASH_SIZE);
-  minfo(RX_LOGCAT, "RandomX main cache initialized");
+  minfo(RZ_LOGCAT, "RandomZR main cache initialized");
 
   CTHR_RWLOCK_UNLOCK_WRITE(main_cache_lock);
 
-  // From this point, rx_slow_hash can calculate hashes in light mode, but dataset is not initialized yet
-  rx_init_dataset(info->max_threads);
+  // From this point, rz_slow_hash can calculate hashes in light mode, but dataset is not initialized yet
+  rz_init_dataset(info->max_threads);
 
   CTHR_RWLOCK_UNLOCK_WRITE(main_dataset_lock);
 
@@ -385,7 +385,7 @@ static CTHR_THREAD_RTYPE rx_set_main_seedhash_thread(void *arg) {
   CTHR_THREAD_RETURN;
 }
 
-void rx_set_main_seedhash(const char *seedhash, size_t max_dataset_init_threads) {
+void rz_set_main_seedhash(const char *seedhash, size_t max_dataset_init_threads) {
   // Early out if seedhash didn't change
   if (is_main(seedhash)) {
     return;
@@ -393,19 +393,19 @@ void rx_set_main_seedhash(const char *seedhash, size_t max_dataset_init_threads)
 
   // Update main cache and dataset in the background
   thread_info* info = malloc(sizeof(thread_info));
-  if (!info) local_abort("Couldn't allocate RandomX mining threadinfo");
+  if (!info) local_abort("Couldn't allocate RandomZR mining threadinfo");
 
   memcpy(info->seedhash, seedhash, HASH_SIZE);
   info->max_threads = max_dataset_init_threads;
 
   CTHR_THREAD_TYPE t;
-  if (!CTHR_THREAD_CREATE(t, rx_set_main_seedhash_thread, info)) {
-    local_abort("Couldn't start RandomX seed thread");
+  if (!CTHR_THREAD_CREATE(t, rz_set_main_seedhash_thread, info)) {
+    local_abort("Couldn't start RandomZR seed thread");
   }
   CTHR_THREAD_CLOSE(t);
 }
 
-void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *result_hash) {
+void rz_slow_hash(const char *seedhash, const void *data, size_t length, char *result_hash) {
   const randomx_flags flags = enabled_flags() & ~disabled_flags();
   int success = 0;
 
@@ -416,7 +416,7 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
     if (main_dataset && CTHR_RWLOCK_TRYLOCK_READ(main_dataset_lock)) {
       // Double check that main_seedhash didn't change
       if (is_main(seedhash)) {
-        rx_init_full_vm(flags, &main_vm_full);
+        rz_init_full_vm(flags, &main_vm_full);
         if (main_vm_full) {
           randomx_calculate_hash(main_vm_full, data, length, result_hash);
           success = 1;
@@ -427,7 +427,7 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
       CTHR_RWLOCK_LOCK_READ(main_cache_lock);
       // Double check that main_seedhash didn't change
       if (is_main(seedhash)) {
-        rx_init_light_vm(flags, &main_vm_light, main_cache);
+        rz_init_light_vm(flags, &main_vm_light, main_cache);
         randomx_calculate_hash(main_vm_light, data, length, result_hash);
         success = 1;
       }
@@ -447,11 +447,11 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
     CTHR_RWLOCK_LOCK_WRITE(secondary_cache_lock);
     if (!secondary_cache) {
       hash2hex(seedhash, buf);
-      minfo(RX_LOGCAT, "RandomX new secondary seed hash is %s", buf);
+      minfo(RZ_LOGCAT, "RandomZR new secondary seed hash is %s", buf);
 
-      rx_alloc_cache(flags, &secondary_cache);
+      rz_alloc_cache(flags, &secondary_cache);
       randomx_init_cache(secondary_cache, seedhash, HASH_SIZE);
-      minfo(RX_LOGCAT, "RandomX secondary cache updated");
+      minfo(RZ_LOGCAT, "RandomZR secondary cache updated");
       memcpy(secondary_seedhash, seedhash, HASH_SIZE);
       secondary_seedhash_set = 1;
     }
@@ -460,7 +460,7 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
 
   CTHR_RWLOCK_LOCK_READ(secondary_cache_lock);
   if (is_secondary(seedhash)) {
-    rx_init_light_vm(flags, &secondary_vm_light, secondary_cache);
+    rz_init_light_vm(flags, &secondary_vm_light, secondary_cache);
     randomx_calculate_hash(secondary_vm_light, data, length, result_hash);
     success = 1;
   }
@@ -475,19 +475,19 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
   CTHR_RWLOCK_LOCK_WRITE(secondary_cache_lock);
   if (!is_secondary(seedhash)) {
     hash2hex(seedhash, buf);
-    minfo(RX_LOGCAT, "RandomX new secondary seed hash is %s", buf);
+    minfo(RZ_LOGCAT, "RandomZR new secondary seed hash is %s", buf);
 
     randomx_init_cache(secondary_cache, seedhash, HASH_SIZE);
-    minfo(RX_LOGCAT, "RandomX secondary cache updated");
+    minfo(RZ_LOGCAT, "RandomZR secondary cache updated");
     memcpy(secondary_seedhash, seedhash, HASH_SIZE);
     secondary_seedhash_set = 1;
   }
-  rx_init_light_vm(flags, &secondary_vm_light, secondary_cache);
+  rz_init_light_vm(flags, &secondary_vm_light, secondary_cache);
   randomx_calculate_hash(secondary_vm_light, data, length, result_hash);
   CTHR_RWLOCK_UNLOCK_WRITE(secondary_cache_lock);
 }
 
-void rx_set_miner_thread(uint32_t value, size_t max_dataset_init_threads) {
+void rz_set_miner_thread(uint32_t value, size_t max_dataset_init_threads) {
   miner_thread = value;
 
   // If dataset is not allocated yet, try to allocate and initialize it
@@ -498,27 +498,27 @@ void rx_set_miner_thread(uint32_t value, size_t max_dataset_init_threads) {
   }
 
   const randomx_flags flags = enabled_flags() & ~disabled_flags();
-  rx_alloc_dataset(flags, &main_dataset, 1);
-  rx_init_dataset(max_dataset_init_threads);
+  rz_alloc_dataset(flags, &main_dataset, 1);
+  rz_init_dataset(max_dataset_init_threads);
 
   CTHR_RWLOCK_UNLOCK_WRITE(main_dataset_lock);
 }
 
-uint32_t rx_get_miner_thread() {
+uint32_t rz_get_miner_thread() {
   return miner_thread;
 }
 
-void rx_slow_hash_allocate_state() {}
+void rz_slow_hash_allocate_state() {}
 
-static void rx_destroy_vm(randomx_vm** vm) {
+static void rz_destroy_vm(randomx_vm** vm) {
   if (*vm) {
     randomx_destroy_vm(*vm);
     *vm = NULL;
   }
 }
 
-void rx_slow_hash_free_state() {
-  rx_destroy_vm(&main_vm_full);
-  rx_destroy_vm(&main_vm_light);
-  rx_destroy_vm(&secondary_vm_light);
+void rz_slow_hash_free_state() {
+  rz_destroy_vm(&main_vm_full);
+  rz_destroy_vm(&main_vm_light);
+  rz_destroy_vm(&secondary_vm_light);
 }

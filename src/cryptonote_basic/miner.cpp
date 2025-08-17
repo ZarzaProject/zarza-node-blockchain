@@ -580,7 +580,7 @@ namespace cryptonote
 
       if ((b.major_version >= RX_BLOCK_VERSION) && !rx_set)
       {
-        crypto::rx_set_miner_thread(th_local_index, tools::get_max_concurrency());
+        crypto::rz_set_miner_thread(th_local_index, tools::get_max_concurrency());
         rx_set = true;
       }
 

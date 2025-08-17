@@ -463,9 +463,9 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
 
   if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
   {
-    const crypto::hash seedhash = get_block_id_by_height(crypto::rx_seedheight(m_db->height()));
+    const crypto::hash seedhash = get_block_id_by_height(crypto::rz_seedheight(m_db->height()));
     if (seedhash != crypto::null_hash)
-      rx_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
+      rz_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
   }
 
   return true;
@@ -585,8 +585,8 @@ void Blockchain::pop_blocks(uint64_t nblocks)
 
   if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
   {
-    const crypto::hash seedhash = get_block_id_by_height(crypto::rx_seedheight(m_db->height()));
-    rx_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
+    const crypto::hash seedhash = get_block_id_by_height(crypto::rz_seedheight(m_db->height()));
+    rz_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
   }
 }
 //------------------------------------------------------------------
@@ -1193,7 +1193,7 @@ bool Blockchain::switch_to_alternative_blockchain(std::list<block_extended_info>
         "%n", std::to_string(m_db->height() - split_height).c_str(), "%d", std::to_string(discarded_blocks).c_str(), NULL);
 
   const uint64_t new_height = m_db->height();
-  const crypto::hash seedhash = get_block_id_by_height(crypto::rx_seedheight(new_height));
+  const crypto::hash seedhash = get_block_id_by_height(crypto::rz_seedheight(new_height));
 
   crypto::hash prev_id;
   if (!get_block_hash(alt_chain.back().bl, prev_id))
@@ -1212,7 +1212,7 @@ bool Blockchain::switch_to_alternative_blockchain(std::list<block_extended_info>
   }
 
   if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
-    rx_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
+    rz_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
 
   MGINFO_GREEN("REORGANIZE SUCCESS! on height: " << split_height << ", new blockchain size: " << m_db->height());
   return true;
@@ -1358,21 +1358,20 @@ bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_bl
     median_weight = epee::misc_utils::median(last_blocks_weights);
   }
   uint64_t height = get_block_height(b);
-// CAMBIO IMPORTANTE: Usamos la función get_object_blobsize para evitar el error.
-size_t current_block_weight = get_object_blobsize(b); 
-uint64_t reward = 0;
+  size_t current_block_weight = get_object_blobsize(b);
+  uint64_t reward = 0;
+  if (!get_block_reward(median_weight, current_block_weight, already_generated_coins, reward, version, height))
+  {
+    MERROR("Failed to get block reward");
+    return false;
+  }
+  base_reward = reward;
 
-if (!get_block_reward(median_weight, current_block_weight, already_generated_coins, reward, version, height))
-{
-  MERROR("Failed to get block reward");
-  return false;
-}
-
-if(base_reward + fee < money_in_use)
-{
-  MERROR("coinbase transaction spend too much money (" << print_money(money_in_use) << "). Block reward is " << print_money(base_reward + fee));
-  return false;
-}
+  if(base_reward + fee < money_in_use)
+  {
+    MERROR("coinbase transaction spend too much money (" << print_money(money_in_use) << "). Block reward is " << print_money(base_reward + fee));
+    return false;
+  }
   // From hard fork 2 till 12, we allow a miner to claim less block reward than is allowed, in case a miner wants less dust
   if (version < 2 || version >= HF_VERSION_EXACT_COINBASE)
   {
@@ -1555,7 +1554,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
       if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
       {
         uint64_t next_height;
-        crypto::rx_seedheights(height, &seed_height, &next_height);
+        crypto::rz_seedheights(height, &seed_height, &next_height);
         seed_hash = get_block_id_by_height(seed_height);
       }
     }
@@ -1563,7 +1562,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
     {
       height = alt_chain.back().height + 1;
       uint64_t next_height;
-      crypto::rx_seedheights(height, &seed_height, &next_height);
+      crypto::rz_seedheights(height, &seed_height, &next_height);
 
       if (alt_chain.size() && alt_chain.front().height <= seed_height)
       {
@@ -1617,7 +1616,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
     if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
     {
       uint64_t next_height;
-      crypto::rx_seedheights(height, &seed_height, &next_height);
+      crypto::rz_seedheights(height, &seed_height, &next_height);
       seed_hash = get_block_id_by_height(seed_height);
     }
   }
@@ -1775,7 +1774,7 @@ bool Blockchain::get_miner_data(uint8_t& major_version, uint64_t& height, crypto
   if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
   {
     uint64_t seed_height, next_height;
-    crypto::rx_seedheights(height, &seed_height, &next_height);
+    crypto::rz_seedheights(height, &seed_height, &next_height);
     seed_hash = get_block_id_by_height(seed_height);
   }
 
@@ -1952,7 +1951,7 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
     if (b.major_version >= RX_BLOCK_VERSION)
     {
       crypto::hash seedhash = null_hash;
-      uint64_t seedheight = rx_seedheight(bei.height);
+      uint64_t seedheight = rz_seedheight(bei.height);
       // seedblock is on the alt chain somewhere
       if (alt_chain.size() && alt_chain.front().height <= seedheight)
       {
@@ -4459,7 +4458,7 @@ leave:
     }
   }
 
-  const crypto::hash seedhash = get_block_id_by_height(crypto::rx_seedheight(new_height));
+  const crypto::hash seedhash = get_block_id_by_height(crypto::rz_seedheight(new_height));
   send_miner_notifications(new_height, seedhash, id, already_generated_coins);
 
   // Make sure that txpool notifications happen BEFORE block notifications
@@ -4469,7 +4468,7 @@ leave:
     notifier(new_height - 1, {std::addressof(bl), 1});
 
   if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
-    rx_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
+    rz_set_main_seedhash(seedhash.data, tools::get_max_concurrency());
 
   return true;
 }

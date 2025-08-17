@@ -1901,7 +1901,7 @@ namespace cryptonote
     }
 
     uint64_t next_height;
-    crypto::rx_seedheights(height, &seed_height, &next_height);
+    crypto::rz_seedheights(height, &seed_height, &next_height);
     if (next_height != seed_height)
       next_seed_hash = m_core.get_block_id_by_height(next_height);
     else
