@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2024, The Monero Project
+// Copyright (c) 2014-2024, The Zarza Project
 //
 // All rights reserved.
 //
@@ -80,38 +80,47 @@ namespace cryptonote {
     return CRYPTONOTE_MAX_TX_SIZE;
   }
   //-----------------------------------------------------------------------------------------------
-  bool get_block_reward(size_t median_weight, size_t current_block_weight, uint64_t already_generated_coins, uint64_t &reward, uint8_t version) {
-    static_assert(DIFFICULTY_TARGET_V2%60==0&&DIFFICULTY_TARGET_V1%60==0,"difficulty targets must be a multiple of 60");
-    const int target = version < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
-    const int target_minutes = target / 60;
-    const int emission_speed_factor = EMISSION_SPEED_FACTOR_PER_MINUTE - (target_minutes-1);
+  bool get_block_reward(size_t median_weight, size_t current_block_weight, uint64_t already_generated_coins, uint64_t &reward, uint8_t version, uint64_t height) {
+    // --- Lógica de Emisión Personalizada para Zarza (ZAR) ---
+    const uint64_t ZARZA_INITIAL_REWARD_ATOMIC = 1360000000000000ULL;
+    const uint64_t BLOCKS_PER_YEAR = 700800;
+    const uint64_t ZARZA_TAIL_EMISSION_ATOMIC = 600000000000ULL;
 
-    uint64_t base_reward = (MONEY_SUPPLY - already_generated_coins) >> emission_speed_factor;
-    if (base_reward < FINAL_SUBSIDY_PER_MINUTE*target_minutes)
-    {
-      base_reward = FINAL_SUBSIDY_PER_MINUTE*target_minutes;
+    if (height == 0) {
+        reward = 17592186044415ULL;
+        return true;
     }
+    
+    uint64_t year = (height -1) / BLOCKS_PER_YEAR;
+    uint64_t base_reward = ZARZA_INITIAL_REWARD_ATOMIC;
 
+    for (uint64_t i = 0; i < year; ++i) {
+        base_reward = (base_reward * 67) / 100;
+    }
+    
+    if (base_reward < ZARZA_TAIL_EMISSION_ATOMIC) {
+        base_reward = ZARZA_TAIL_EMISSION_ATOMIC;
+    }
+    // --- Fin de la Lógica de Emisión de Zarza ---
+
+    // --- Lógica de Penalización por Peso del Bloque ---
     uint64_t full_reward_zone = get_min_block_weight(version);
 
-    //make it soft
     if (median_weight < full_reward_zone) {
-      median_weight = full_reward_zone;
+        median_weight = full_reward_zone;
     }
 
     if (current_block_weight <= median_weight) {
-      reward = base_reward;
-      return true;
+        reward = base_reward;
+        return true;
     }
 
     if(current_block_weight > 2 * median_weight) {
-      MERROR("Block cumulative weight is too big: " << current_block_weight << ", expected less than " << 2 * median_weight);
-      return false;
+        MERROR("Block cumulative weight is too big: " << current_block_weight << ", expected less than " << 2 * median_weight);
+        return false;
     }
 
     uint64_t product_hi;
-    // BUGFIX: 32-bit saturation bug (e.g. ARM7), the result was being
-    // treated as 32-bit by default.
     uint64_t multiplicand = 2 * median_weight - current_block_weight;
     multiplicand *= current_block_weight;
     uint64_t product_lo = mul128(base_reward, multiplicand, &product_hi);
@@ -120,6 +129,7 @@ namespace cryptonote {
     uint64_t reward_lo;
     div128_64(product_hi, product_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
     div128_64(reward_hi, reward_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
+    
     assert(0 == reward_hi);
     assert(reward_lo < base_reward);
 
@@ -310,6 +320,8 @@ namespace cryptonote {
   bool operator ==(const cryptonote::block& a, const cryptonote::block& b) {
     return cryptonote::get_block_hash(a) == cryptonote::get_block_hash(b);
   }
+  
+  // ¡¡ESTA ES LA FUNCIÓN QUE FALTABA!!
   //--------------------------------------------------------------------------------
   int compare_hash32_reversed_nbits(const crypto::hash& ha, const crypto::hash& hb, unsigned int nbits)
   {
@@ -358,8 +370,6 @@ namespace cryptonote {
   }
   //--------------------------------------------------------------------------------
 }
-
-//--------------------------------------------------------------------------------
 bool parse_hash256(const std::string &str_hash, crypto::hash& hash)
 {
   std::string buf;

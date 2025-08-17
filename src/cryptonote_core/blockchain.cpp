@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2024, The Monero Project
+// Copyright (c) 2014-2024, The Zarza Project
 //
 // All rights reserved.
 //
@@ -37,6 +37,7 @@
 
 #include "include_base_utils.h"
 #include "cryptonote_basic/cryptonote_basic_impl.h"
+#include "cryptonote_basic/cryptonote_format_utils.h"
 #include "tx_pool.h"
 #include "blockchain.h"
 #include "blockchain_db/blockchain_db.h"
@@ -59,6 +60,7 @@
 #include "common/pruning.h"
 #include "common/data_cache.h"
 #include "time_helper.h"
+
 
 #undef MONERO_DEFAULT_LOG_CATEGORY
 #define MONERO_DEFAULT_LOG_CATEGORY "blockchain"
@@ -1355,16 +1357,22 @@ bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_bl
     get_last_n_blocks_weights(last_blocks_weights, CRYPTONOTE_REWARD_BLOCKS_WINDOW);
     median_weight = epee::misc_utils::median(last_blocks_weights);
   }
-  if (!get_block_reward(median_weight, cumulative_block_weight, already_generated_coins, base_reward, version))
-  {
-    MERROR_VER("block weight " << cumulative_block_weight << " is bigger than allowed for this blockchain");
-    return false;
-  }
-  if(base_reward + fee < money_in_use)
-  {
-    MERROR_VER("coinbase transaction spend too much money (" << print_money(money_in_use) << "). Block reward is " << print_money(base_reward + fee) << "(" << print_money(base_reward) << "+" << print_money(fee) << "), cumulative_block_weight " << cumulative_block_weight);
-    return false;
-  }
+  uint64_t height = get_block_height(b);
+// CAMBIO IMPORTANTE: Usamos la función get_object_blobsize para evitar el error.
+size_t current_block_weight = get_object_blobsize(b); 
+uint64_t reward = 0;
+
+if (!get_block_reward(median_weight, current_block_weight, already_generated_coins, reward, version, height))
+{
+  MERROR("Failed to get block reward");
+  return false;
+}
+
+if(base_reward + fee < money_in_use)
+{
+  MERROR("coinbase transaction spend too much money (" << print_money(money_in_use) << "). Block reward is " << print_money(base_reward + fee));
+  return false;
+}
   // From hard fork 2 till 12, we allow a miner to claim less block reward than is allowed, in case a miner wants less dust
   if (version < 2 || version >= HF_VERSION_EXACT_COINBASE)
   {
@@ -1625,7 +1633,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
 
   size_t txs_weight;
   uint64_t fee;
-  if (!m_tx_pool.fill_block_template(b, median_weight, already_generated_coins, txs_weight, fee, expected_reward, b.major_version))
+  if (!m_tx_pool.fill_block_template(b, median_weight, already_generated_coins, txs_weight, fee, expected_reward, b.major_version, height))
   {
     return false;
   }
@@ -3674,7 +3682,7 @@ bool Blockchain::check_fee(size_t tx_weight, uint64_t fee) const
     median = m_current_block_cumul_weight_limit / 2;
     const uint64_t blockchain_height = m_db->height();
     already_generated_coins = blockchain_height ? m_db->get_block_already_generated_coins(blockchain_height - 1) : 0;
-    if (!get_block_reward(median, 1, already_generated_coins, base_reward, version))
+    if (!get_block_reward(median, 1, already_generated_coins, base_reward, version, m_db->height()))
       return false;
   }
 
@@ -3701,7 +3709,7 @@ bool Blockchain::check_fee(size_t tx_weight, uint64_t fee) const
 void Blockchain::get_dynamic_base_fee_estimate_2021_scaling(uint64_t base_reward, uint64_t Mnw,
   uint64_t Mlw, std::vector<uint64_t> &fees)
 {
-  // variable names and calculations as per https://github.com/ArticMine/Monero-Documents/blob/master/MoneroScaling2021-02.pdf
+  // variable names and calculations as per https://github.com/ArticMine/Zarza-Documents/blob/master/ZarzaScaling2021-02.pdf
   // from (earlier than) this fork, the base fee is per byte
   const uint64_t Mfw = std::min(Mnw, Mlw);
 
@@ -3765,7 +3773,7 @@ void Blockchain::get_dynamic_base_fee_estimate_2021_scaling(uint64_t grace_block
 
   uint64_t already_generated_coins = db_height ? m_db->get_block_already_generated_coins(db_height - 1) : 0;
   uint64_t base_reward;
-  if (!get_block_reward(m_current_block_cumul_weight_limit / 2, 1, already_generated_coins, base_reward, version))
+  if (!get_block_reward(m_current_block_cumul_weight_limit / 2, 1, already_generated_coins, base_reward, version, m_db->height()))
   {
     MERROR("Failed to determine block reward, using placeholder " << print_money(BLOCK_REWARD_OVERESTIMATE) << " as a high bound");
     base_reward = BLOCK_REWARD_OVERESTIMATE;
@@ -4493,7 +4501,7 @@ bool Blockchain::check_blockchain_pruning()
   return m_db->check_pruning();
 }
 //------------------------------------------------------------------
-// returns min(Mb, 1.7*Ml) as per https://github.com/ArticMine/Monero-Documents/blob/master/MoneroScaling2021-02.pdf from HF_VERSION_LONG_TERM_BLOCK_WEIGHT
+// returns min(Mb, 1.7*Ml) as per https://github.com/ArticMine/Zarza-Documents/blob/master/ZarzaScaling2021-02.pdf from HF_VERSION_LONG_TERM_BLOCK_WEIGHT
 uint64_t Blockchain::get_next_long_term_block_weight(uint64_t block_weight) const
 {
   PERF_TIMER(get_next_long_term_block_weight);
@@ -4659,7 +4667,7 @@ void Blockchain::check_against_checkpoints(const checkpoints& points, bool enfor
       }
       else
       {
-        LOG_ERROR("WARNING: local blockchain failed to pass a MoneroPulse checkpoint, and you could be on a fork. You should either sync up from scratch, OR download a fresh blockchain bootstrap, OR enable checkpoint enforcing with the --enforce-dns-checkpointing command-line option");
+        LOG_ERROR("WARNING: local blockchain failed to pass a ZarzaPulse checkpoint, and you could be on a fork. You should either sync up from scratch, OR download a fresh blockchain bootstrap, OR enable checkpoint enforcing with the --enforce-dns-checkpointing command-line option");
       }
     }
   }
